@@ -25,7 +25,7 @@ interface RoutingConfigProps {
 const EMPTY_OUTBOUNDS: string[] = []
 
 export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTBOUNDS }: RoutingConfigProps) {
-  const { config, setRouting } = useSingboxConfigStore()
+  const { config, setRouting, currentInstance } = useSingboxConfigStore()
   const { t } = useTranslation("routing")
   const initialConfig = config.route
 
@@ -50,19 +50,33 @@ export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTB
   const [enableBlockAds, setEnableBlockAds] = useState(false)
   const [enablePrivateIpDirect, setEnablePrivateIpDirect] = useState(false)
 
-  const isInitializedRef = useRef(false)
+  // Which instance we've last initialized local state from. A brand-new instance
+  // (or any instance that was created without ever touching the Route tab) has
+  // config.route === undefined — that's a legitimate "no rules yet" state, not
+  // "still loading". The old `if (!initialConfig) return` guard treated the two
+  // the same and waited forever for a route that would never arrive, so Effect 2
+  // (the only code that persists rule/mode changes back to the store) never ran
+  // at all — every checkbox toggle looked fine in the UI but never reached
+  // config.route, and getFullConfig() silently fell back to its own hardcoded
+  // default route instead. Keying this off the instance name (rather than just
+  // "have I ever initialized") also makes switching instances while this
+  // component stays mounted re-initialize instead of reusing stale state.
+  const initializedForRef = useRef<string | null | undefined>(undefined)
+  // Effect 2 below runs in the same commit as this effect, before any of this
+  // effect's setState calls have actually applied — so without this guard it
+  // would read the OLD routeMode/toggle values and briefly persist a wrong
+  // (usually empty) route. Skipping once lets the next render, triggered by
+  // this effect's own setState calls, re-run Effect 2 with the real values.
+  const justInitializedRef = useRef(false)
 
-  // Initialize from initialConfig (first load only)
-  // Note: we do NOT set isInitializedRef.current = true when initialConfig is absent,
-  // so that Effect 2 stays gated and we retry once the config actually arrives from the server.
+  // Initialize from initialConfig (once per instance)
   useEffect(() => {
-    if (isInitializedRef.current) return
-    if (!initialConfig) return  // wait for config to load before initializing
+    if (initializedForRef.current === currentInstance) return
 
-    if (initialConfig.final) {
+    if (initialConfig?.final) {
       setFinalOutbound(initialConfig.final)
     }
-    if (initialConfig.default_domain_resolver) {
+    if (initialConfig?.default_domain_resolver) {
       const resolver = initialConfig.default_domain_resolver
       setDefaultDomainResolver(typeof resolver === "string" ? resolver : resolver.server || "")
     }
@@ -71,9 +85,9 @@ export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTB
     // routeMode stays at its hardcoded "global_proxy" default on every remount, and
     // the sync effect below immediately overwrites a saved "rules"-mode config
     // (with real rules) back to an empty global-proxy route.
-    if ((initialConfig.rules || []).length > 0) {
+    if ((initialConfig?.rules || []).length > 0) {
       setRouteMode("rules")
-    } else if (initialConfig.final === "direct") {
+    } else if (initialConfig?.final === "direct") {
       setRouteMode("global_direct")
     } else {
       setRouteMode("global_proxy")
@@ -88,7 +102,7 @@ export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTB
     const bDomains: string[] = []
     const bIps: string[] = []
 
-    for (const rule of initialConfig.rules || []) {
+    for (const rule of initialConfig?.rules || []) {
       let classified = false
 
       // Detect preset rule_set rules
@@ -151,15 +165,20 @@ export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTB
     setBlockIps(bIps.join("\n"))
     setRules(manualRules)
 
-    isInitializedRef.current = true
-  }, [initialConfig])
+    justInitializedRef.current = true
+    initializedForRef.current = currentInstance
+  }, [currentInstance, initialConfig])
 
   // Sync to global store on every state change
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // config.dns is intentionally omitted to avoid re-initialization loops;
   // we only want to capture the initial value once.
   useEffect(() => {
-    if (!isInitializedRef.current) return
+    if (initializedForRef.current !== currentInstance) return
+    if (justInitializedRef.current) {
+      justInitializedRef.current = false
+      return
+    }
 
     const proxyTag = availableOutbounds.includes("proxy_out")
       ? "proxy_out"
@@ -234,7 +253,7 @@ export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTB
     }
     setRouting(routingConfig)
   }, [
-    routeMode, finalOutbound, rules, defaultDomainResolver,
+    currentInstance, routeMode, finalOutbound, rules, defaultDomainResolver,
     directDomains, directIps, proxyDomains, proxyIps,
     blockDomains, blockIps,
     enableGfw, enableCnDomain, enableCnIp,
