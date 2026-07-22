@@ -1769,50 +1769,38 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
       }
     }
 
-    // If no proxy outbound, override DNS and route with minimal direct config
-    // (split-routing DNS and geo rule_sets are pointless when everything goes direct)
-    if (!hasProxyOutbound) {
-      fullConfig.dns = {
-        servers: [{ tag: "local_dns", type: "udp", server: "8.8.8.8" }],
-        final: "local_dns",
-        independent_cache: true,
-      }
-      fullConfig.route = {
-        rules: [],
-        final: "proxy_out",
-        default_domain_resolver: "local_dns",
-      }
-      return fullConfig
-    }
-
-    // Proxy outbound (non-balancer): override DNS and route with minimal global-proxy config
+    // DNS: honor whatever the user configured on the DNS tab. Only fall back to a
+    // sane zero-config default when it's empty (e.g. a brand-new instance) — this
+    // used to unconditionally overwrite config.dns/config.route here whenever
+    // balancer mode was off (the common single-outbound case), silently discarding
+    // every edit made on the DNS/Route tabs even though the save appeared to succeed.
     //
-    // DNS 设计:
+    // DNS 设计 (fallback 分支):
     //   - remote_dns 通过 proxy_out 出站, 承担用户流量 DNS, 防污染/泄漏
     //   - local_resolver 不设 detour, sing-box 1.13 默认即走 direct
     //     (显式 detour 到一条空 direct 出站会被 1.13 拒绝启动, 错误:
     //      "detour to an empty direct outbound makes no sense")
-    //   - default_domain_resolver 指向 local_resolver, 让路由规则中的域名解析
-    //     在代理通道未就绪时也能完成 (WG peer 若是域名需要在握手前解析)
-    //   - dns.final 仍是 remote_dns: 用户正常上网时域名通过 WARP 解析
-    if (!balancerState.enabled) {
-      fullConfig.dns = {
-        servers: [
-          { tag: "remote_dns", type: "udp", server: "8.8.8.8", detour: "proxy_out" },
-          { tag: "local_resolver", type: "udp", server: "1.1.1.1" },
-        ],
-        final: "remote_dns",
-        independent_cache: true,
-      }
-      fullConfig.route = {
-        rules: [],
-        final: "proxy_out",
-        default_domain_resolver: "local_resolver",
-      }
-      return fullConfig
+    //   - dns.final 仍是 remote_dns: 用户正常上网时域名通过代理出站解析
+    if (!fullConfig.dns?.servers || fullConfig.dns.servers.length === 0) {
+      fullConfig.dns = hasProxyOutbound
+        ? {
+            servers: [
+              { tag: "remote_dns", type: "udp", server: "8.8.8.8", detour: "proxy_out" },
+              { tag: "local_resolver", type: "udp", server: "1.1.1.1" },
+            ],
+            final: "remote_dns",
+            independent_cache: true,
+          }
+        : {
+            servers: [{ tag: "local_dns", type: "udp", server: "8.8.8.8" }],
+            final: "local_dns",
+            independent_cache: true,
+          }
     }
 
-    // Balancer mode: build urltest outbound and route from existing config.
+    // Route is built below from config.route (the Route tab's rules/final) for both
+    // balancer and non-balancer cases. A missing default_domain_resolver is filled
+    // in by the fallback at the end of this function.
     // 含 endpoints[] 的 tag 是因为 WireGuard/WARP 已从 outbounds 迁到 endpoints
     // (见 getFullConfig 开头的迁移逻辑), 二者共享 tag 命名空间;
     // 若这里只取 outbounds, 路由规则中指向 WG/WARP 的 tag 会被误过滤.
@@ -1958,7 +1946,7 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
           },
         ],
         final: "proxy_out",
-        default_domain_resolver: "local_dns",
+        // default_domain_resolver filled in below from whatever DNS servers actually exist
       }
     }
 
