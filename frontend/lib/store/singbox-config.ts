@@ -1832,16 +1832,23 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
       }
 
       const ruleSetDefinitions: RuleSet[] = []
+      // Rule-sets are fetched by sing-box at startup and treated as fatal if the
+      // request fails — a raw.githubusercontent.com hiccup (common from mainland
+      // China) means the whole instance refuses to start. Routed through a GitHub
+      // accelerator mirror instead of hitting GitHub directly; swap GH_PROXY (or
+      // drop it) if this mirror ever goes away. Underlying sources documented
+      // per-entry below.
+      const GH_PROXY = "https://v6.gh-proxy.org/"
       const ruleSetUrls: Record<string, string> = {
-        "geosite-cn": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
-        "geoip-cn": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-        "geosite-category-ads-all": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
-        "geosite-geolocation-!cn": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs",
+        "geosite-cn": GH_PROXY + "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
+        "geoip-cn": GH_PROXY + "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+        "geosite-category-ads-all": GH_PROXY + "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
+        "geosite-geolocation-!cn": GH_PROXY + "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs",
         // Actual gfwlist (github.com/gfwlist/gfwlist), converted to sing-box .srs by
         // DustinWin/ruleset_geodata's daily build (which itself runs gfwlist2dnsmasq
         // against the live gfwlist). SagerNet/sing-geosite never published a "gfw" set
         // despite the earlier code assuming it did — that URL 404'd unconditionally.
-        "geosite-gfw": "https://raw.githubusercontent.com/DustinWin/ruleset_geodata/sing-box-ruleset/gfw.srs",
+        "geosite-gfw": GH_PROXY + "https://raw.githubusercontent.com/DustinWin/ruleset_geodata/sing-box-ruleset/gfw.srs",
       }
 
       for (const tag of usedRuleSets) {
