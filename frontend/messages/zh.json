@@ -672,7 +672,7 @@
     "privateIpLabel": "私有 IP 直连 (10.x, 172.16.x, 192.168.x 等)",
     "blockAdsLabel": "屏蔽广告域名 (geosite-category-ads-all)",
     "enableGfw": "启用 GFW 列表",
-    "gfwDesc": "使用 SagerNet 社区维护的 geosite-gfw 规则集，匹配的域名将通过代理出站。规则集会在 sing-box 启动时自动下载并缓存。",
+    "gfwDesc": "使用 SagerNet 社区维护的 geosite-geolocation-!cn 规则集（非中国大陆地区域名），匹配的域名将通过代理出站。规则集会在 sing-box 启动时自动下载并缓存。",
     "gfwSource": "来源: github.com/SagerNet/sing-geosite",
     "enableCnDomain": "启用中国域名直连",
     "cnDomainDesc": "使用 geosite-cn 规则集，匹配的中国域名将直连，避免绕路。",

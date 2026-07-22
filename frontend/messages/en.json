@@ -672,7 +672,7 @@
     "privateIpLabel": "Private IPs Direct (10.x, 172.16.x, 192.168.x, etc.)",
     "blockAdsLabel": "Block Ad Domains (geosite-category-ads-all)",
     "enableGfw": "Enable GFW List",
-    "gfwDesc": "Uses the SagerNet community-maintained geosite-gfw rule set. Matched domains will go through proxy. Rule sets are auto-downloaded and cached on sing-box startup.",
+    "gfwDesc": "Uses the SagerNet community-maintained geosite-geolocation-!cn rule set (non-mainland-China domains). Matched domains will go through proxy. Rule sets are auto-downloaded and cached on sing-box startup.",
     "gfwSource": "Source: github.com/SagerNet/sing-geosite",
     "enableCnDomain": "Enable China Domains Direct",
     "cnDomainDesc": "Uses the geosite-cn rule set. Matched China domains will connect directly to avoid detour.",

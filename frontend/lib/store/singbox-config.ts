@@ -1837,8 +1837,6 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
         "geoip-cn": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
         "geosite-category-ads-all": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
         "geosite-geolocation-!cn": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs",
-        "geoip-private": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-private.srs",
-        "geosite-gfw": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-gfw.srs",
       }
 
       for (const tag of usedRuleSets) {

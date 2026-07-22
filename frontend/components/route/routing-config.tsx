@@ -67,6 +67,18 @@ export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTB
       setDefaultDomainResolver(typeof resolver === "string" ? resolver : resolver.server || "")
     }
 
+    // Restore which route mode this config was actually saved in. Without this,
+    // routeMode stays at its hardcoded "global_proxy" default on every remount, and
+    // the sync effect below immediately overwrites a saved "rules"-mode config
+    // (with real rules) back to an empty global-proxy route.
+    if ((initialConfig.rules || []).length > 0) {
+      setRouteMode("rules")
+    } else if (initialConfig.final === "direct") {
+      setRouteMode("global_direct")
+    } else {
+      setRouteMode("global_proxy")
+    }
+
     // Reverse-parse existing rules into Passwall lists
     const manualRules: RouteRule[] = []
     const dDomains: string[] = []
@@ -88,7 +100,7 @@ export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTB
           setEnableCnDomain(true); classified = true
         } else if (rs === "geoip-cn" && rule.outbound === "direct") {
           setEnableCnIp(true); classified = true
-        } else if (rs === "geosite-gfw") {
+        } else if (rs === "geosite-geolocation-!cn") {
           setEnableGfw(true); classified = true
         }
       }
@@ -210,7 +222,7 @@ export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTB
       generatedRules.push({ action: "route", outbound: proxyTag, ip_cidr: normalizeIpCidrs(proxyIpList) })
     }
     if (enableGfw) {
-      generatedRules.push({ action: "route", outbound: proxyTag, rule_set: ["geosite-gfw"] })
+      generatedRules.push({ action: "route", outbound: proxyTag, rule_set: ["geosite-geolocation-!cn"] })
     }
 
     // Append manual rules
