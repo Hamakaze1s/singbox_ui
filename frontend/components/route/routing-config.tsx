@@ -100,7 +100,7 @@ export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTB
           setEnableCnDomain(true); classified = true
         } else if (rs === "geoip-cn" && rule.outbound === "direct") {
           setEnableCnIp(true); classified = true
-        } else if (rs === "geosite-geolocation-!cn") {
+        } else if (rs === "geosite-gfw") {
           setEnableGfw(true); classified = true
         }
       }
@@ -222,7 +222,7 @@ export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTB
       generatedRules.push({ action: "route", outbound: proxyTag, ip_cidr: normalizeIpCidrs(proxyIpList) })
     }
     if (enableGfw) {
-      generatedRules.push({ action: "route", outbound: proxyTag, rule_set: ["geosite-geolocation-!cn"] })
+      generatedRules.push({ action: "route", outbound: proxyTag, rule_set: ["geosite-gfw"] })
     }
 
     // Append manual rules

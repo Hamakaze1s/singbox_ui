@@ -1837,6 +1837,11 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
         "geoip-cn": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
         "geosite-category-ads-all": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
         "geosite-geolocation-!cn": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs",
+        // Actual gfwlist (github.com/gfwlist/gfwlist), converted to sing-box .srs by
+        // DustinWin/ruleset_geodata's daily build (which itself runs gfwlist2dnsmasq
+        // against the live gfwlist). SagerNet/sing-geosite never published a "gfw" set
+        // despite the earlier code assuming it did — that URL 404'd unconditionally.
+        "geosite-gfw": "https://raw.githubusercontent.com/DustinWin/ruleset_geodata/sing-box-ruleset/gfw.srs",
       }
 
       for (const tag of usedRuleSets) {
