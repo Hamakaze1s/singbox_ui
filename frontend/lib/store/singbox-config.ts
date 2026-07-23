@@ -1680,17 +1680,21 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
       }
     }
 
-    // Ensure direct and block outbounds exist if route is configured
-    if (config.route && config.route.rules && config.route.rules.length > 0) {
-      const hasDirectTag = outbounds.some((o) => o.tag === "direct")
-      const hasBlockTag = outbounds.some((o) => o.tag === "block")
+    // Always ensure direct/block outbounds exist. This used to be conditional on
+    // config.route.rules being non-empty, but that checks the *pre-rebuild* rules:
+    // the default route built below (when config.route is absent) emits rules with
+    // outbound: "direct", and in global-proxy mode config.route.rules is [] even
+    // though those generated rules still reference "direct". A stray unused
+    // direct/block outbound is harmless, so just always add them instead of trying
+    // to predict every path that references them.
+    const hasDirectTag = outbounds.some((o) => o.tag === "direct")
+    const hasBlockTag = outbounds.some((o) => o.tag === "block")
 
-      if (!hasDirectTag) {
-        outbounds.push({ type: "direct", tag: "direct" })
-      }
-      if (!hasBlockTag) {
-        outbounds.push({ type: "block", tag: "block" })
-      }
+    if (!hasDirectTag) {
+      outbounds.push({ type: "direct", tag: "direct" })
+    }
+    if (!hasBlockTag) {
+      outbounds.push({ type: "block", tag: "block" })
     }
 
     // Build full config
@@ -1796,6 +1800,25 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
             final: "local_dns",
             independent_cache: true,
           }
+    } else if (!hasProxyOutbound) {
+      // No real proxy outbound: proxy_out (if referenced) is at best a stub direct
+      // outbound. A DNS server whose detour points at an empty direct outbound makes
+      // sing-box 1.13 refuse to start ("detour to an empty direct outbound makes no
+      // sense"). The default DNS ships remote_dns with detour:"proxy_out", so a
+      // no-proxy instance (e.g. pure WireGuard inbound VPN server, or direct-only)
+      // using the default DNS would otherwise crash-loop on start — and `sing-box
+      // check` doesn't catch it because it never calls Start(). Since there's no
+      // proxy to route DNS through anyway, strip detour so those servers resolve
+      // directly. Only touches the no-proxy case; real-proxy configs keep their detour.
+      const strippedServers = fullConfig.dns.servers.map((s) => {
+        if (!s.detour) return s
+        const { detour, ...rest } = s
+        return rest
+      })
+      const changed = strippedServers.some((s, i) => s !== fullConfig.dns!.servers![i])
+      if (changed) {
+        fullConfig.dns = { ...fullConfig.dns, servers: strippedServers }
+      }
     }
 
     // Route is built below from config.route (the Route tab's rules/final) for both
@@ -1843,6 +1866,11 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
         "geosite-cn": GH_PROXY + "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
         "geoip-cn": GH_PROXY + "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
         "geosite-category-ads-all": GH_PROXY + "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
+        // Kept as a safety net: the GFW toggle used a transient "geosite-geolocation-!cn"
+        // tag in an earlier iteration of this branch, so a config saved back then and
+        // reloaded now would carry a manual rule referencing it — without this entry
+        // that reference resolves to nothing and sing-box FATALs with "rule-set not
+        // found". URL is valid (200). Harmless when unreferenced (only emitted per tag).
         "geosite-geolocation-!cn": GH_PROXY + "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs",
         // Actual gfwlist (github.com/gfwlist/gfwlist), converted to sing-box .srs by
         // DustinWin/ruleset_geodata's daily build (which itself runs gfwlist2dnsmasq
@@ -1900,7 +1928,12 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
           final: "proxy_out",
         }
       } else {
+        // No route configured yet, but the DNS tab's default rule can still
+        // reference geosite-cn — generate its definition so that reference isn't
+        // left dangling (previously this branch emitted no rule_set at all).
+        const ruleSetDefs = generateRuleSetDefinitions([], fullConfig.dns?.rules)
         fullConfig.route = {
+          rule_set: ruleSetDefs.length > 0 ? ruleSetDefs : undefined,
           rules: [],
           final: "proxy_out",
         }
@@ -1923,38 +1956,18 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
     } else if (outbounds.length > 0) {
       // Create default route with final pointing to proxy_out
       // Note: action is required in sing-box 1.11.0+
+      // Built through generateRuleSetDefinitions (not hand-written) so this default
+      // route's rule_set definitions also get the GH_PROXY mirror — this branch
+      // used to bypass the helper and hit raw.githubusercontent.com directly.
+      const defaultRules: RouteRule[] = [
+        { action: "route", rule_set: ["geosite-cn"], outbound: "direct" },
+        { action: "route", rule_set: ["geoip-cn"], outbound: "direct" },
+        { action: "route", ip_is_private: true, outbound: "direct" },
+      ]
+      const ruleSetDefs = generateRuleSetDefinitions(defaultRules, fullConfig.dns?.rules)
       fullConfig.route = {
-        rule_set: [
-          {
-            tag: "geosite-cn",
-            type: "remote",
-            format: "binary",
-            url: "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
-          },
-          {
-            tag: "geoip-cn",
-            type: "remote",
-            format: "binary",
-            url: "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-          },
-        ],
-        rules: [
-          {
-            action: "route",
-            rule_set: ["geosite-cn"],
-            outbound: "direct",
-          },
-          {
-            action: "route",
-            rule_set: ["geoip-cn"],
-            outbound: "direct",
-          },
-          {
-            action: "route",
-            ip_is_private: true,
-            outbound: "direct",
-          },
-        ],
+        rule_set: ruleSetDefs.length > 0 ? ruleSetDefs : undefined,
+        rules: defaultRules,
         final: "proxy_out",
         // default_domain_resolver filled in below from whatever DNS servers actually exist
       }
