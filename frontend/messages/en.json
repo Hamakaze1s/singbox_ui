@@ -649,6 +649,8 @@
     "domainResolverLabel": "Default Domain Resolver (default_domain_resolver)",
     "domainResolverPlaceholder": "e.g. local_dns",
     "domainResolverDesc": "DNS server tag for resolving outbound server domains (required for sing-box 1.12.0+)",
+    "ruleSetDirectDownload": "Download rule-sets directly",
+    "ruleSetDirectDownloadDesc": "Rule-set (GFW list, China domains/IPs, etc.) download failures prevent the container from starting at all. Downloads go direct by default, bypassing the proxy outbound, so a proxy issue doesn't also take down startup. Turn this off if your network can only reach the rule-set URLs through the proxy.",
     "routingRules": "Routing Rules",
     "rulePriority": "Priority: Block list > Direct list > Proxy list > Manual rules > Default outbound",
     "directList": "Direct List",

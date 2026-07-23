@@ -649,6 +649,8 @@
     "domainResolverLabel": "默认域名解析器 (default_domain_resolver)",
     "domainResolverPlaceholder": "例如: local_dns",
     "domainResolverDesc": "用于解析出站服务器域名的 DNS 服务器标签 (sing-box 1.12.0+ 必需)",
+    "ruleSetDirectDownload": "规则集下载走直连",
+    "ruleSetDirectDownloadDesc": "规则集（GFW 列表、中国域名/IP 等）下载失败会导致容器无法启动。默认直连下载，不经过代理出站，避免代理本身的问题连带影响启动；如果你的网络无法直连规则集地址、只能靠代理访问，可以关闭此项改为走代理下载。",
     "routingRules": "分流规则",
     "rulePriority": "优先级: 屏蔽列表 > 直连列表 > 代理列表 > 手动规则 > 默认出站",
     "directList": "直连列表",

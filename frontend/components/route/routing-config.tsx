@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { Route } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -25,7 +26,7 @@ interface RoutingConfigProps {
 const EMPTY_OUTBOUNDS: string[] = []
 
 export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTBOUNDS }: RoutingConfigProps) {
-  const { config, setRouting, currentInstance } = useSingboxConfigStore()
+  const { config, setRouting, currentInstance, ruleSetDirectDownload, setRuleSetDirectDownload } = useSingboxConfigStore()
   const { t } = useTranslation("routing")
   const initialConfig = config.route
 
@@ -291,6 +292,22 @@ export function RoutingConfig({ showCard = true, availableOutbounds = EMPTY_OUTB
             {routeMode === "rules" && t("ruleRoutingDesc")}
           </p>
         </div>
+      </div>
+
+      {/* Rule-set download routing: applies regardless of route mode, since the
+          DNS tab's own default rule can pull in geosite-cn independently. */}
+      <div className="space-y-2 p-4 rounded-xl bg-zinc-50/50 dark:bg-zinc-950/50 border border-zinc-100 dark:border-zinc-800/50">
+        <div className="flex items-center space-x-2">
+          <Checkbox
+            id="rule-set-direct-download"
+            checked={ruleSetDirectDownload}
+            onCheckedChange={(checked) => setRuleSetDirectDownload(checked as boolean)}
+          />
+          <Label htmlFor="rule-set-direct-download" className="text-sm font-medium cursor-pointer">
+            {t("ruleSetDirectDownload")}
+          </Label>
+        </div>
+        <p className="text-xs text-muted-foreground">{t("ruleSetDirectDownloadDesc")}</p>
       </div>
 
       {/* Rule split mode: final outbound + domain resolver + tab lists */}

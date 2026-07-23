@@ -1144,6 +1144,13 @@ interface SingboxConfigStore {
   // Balancer state (derived from outbound selection)
   balancerState: BalancerState
 
+  // Whether auto-generated rule-set downloads (geosite-cn, geoip-cn, etc.) should
+  // bypass the proxy outbound. Not a native sing-box field — applied as each
+  // rule_set definition's `download_detour` at save time. Defaults to direct
+  // because rule-set fetch failure is fatal at sing-box startup, and routing it
+  // through a possibly-misbehaving user-configured proxy outbound is fragile.
+  ruleSetDirectDownload: boolean
+
   // Loading/saving state
   isLoading: boolean
   isSaving: boolean
@@ -1184,6 +1191,9 @@ interface SingboxConfigStore {
   // Actions - Balancer
   setBalancerState: (state: BalancerState | null) => void
 
+  // Actions - Rule-set download routing
+  setRuleSetDirectDownload: (direct: boolean) => void
+
   // Actions - Instance management
   setCurrentInstance: (instance: string | null) => void
   setInstances: (instances: InstanceInfo[]) => void
@@ -1217,6 +1227,7 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
     strategy: '50',
     allOutbounds: [],
   },
+  ruleSetDirectDownload: true,
   isLoading: false,
   isSaving: false,
   isLoaded: false,
@@ -1390,6 +1401,8 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
     },
   }),
 
+  setRuleSetDirectDownload: (direct) => set({ ruleSetDirectDownload: direct }),
+
   // ============= Instance Actions =============
 
   setCurrentInstance: (instance) => set({ currentInstance: instance }),
@@ -1414,6 +1427,12 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
       const response = await fetch(`/api/singbox/instances/${encodeURIComponent(instance)}/config`)
       if (response.ok) {
         const configData = await response.json()
+        // Restore the rule-set download toggle from whatever was actually saved,
+        // instead of resetting to the default every time an instance loads.
+        const savedRuleSets = configData.route?.rule_set
+        const ruleSetDirectDownload = Array.isArray(savedRuleSets) && savedRuleSets.length > 0
+          ? savedRuleSets.every((rs: any) => rs.download_detour === "direct")
+          : true
         set((state) => ({
           currentInstance: instance,
           config: {
@@ -1426,6 +1445,7 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
             route: configData.route,
             experimental: configData.experimental,
           },
+          ruleSetDirectDownload,
           isLoaded: true,
           isLoading: false,
         }))
@@ -1590,20 +1610,30 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
 
   // ============= Local Config Actions =============
 
-  loadConfig: (config) => set((state) => ({
-    config: {
-      ...state.config,
-      ...config,
-      log: config.log || state.config.log,
-      dns: config.dns || state.config.dns,
-      endpoints: config.endpoints || state.config.endpoints,
-      inbounds: config.inbounds || state.config.inbounds,
-      outbounds: config.outbounds || state.config.outbounds,
-      route: config.route,
-      experimental: config.experimental,
-    },
-    isLoaded: true,
-  })),
+  loadConfig: (config) => set((state) => {
+    // Mirror loadInstanceConfig's inference so importing a full JSON (e.g. via the
+    // JSON drawer's Apply button) doesn't leave the toggle out of sync with what
+    // was actually imported.
+    const savedRuleSets = config.route?.rule_set
+    const ruleSetDirectDownload = Array.isArray(savedRuleSets) && savedRuleSets.length > 0
+      ? savedRuleSets.every((rs) => rs.download_detour === "direct")
+      : true
+    return {
+      config: {
+        ...state.config,
+        ...config,
+        log: config.log || state.config.log,
+        dns: config.dns || state.config.dns,
+        endpoints: config.endpoints || state.config.endpoints,
+        inbounds: config.inbounds || state.config.inbounds,
+        outbounds: config.outbounds || state.config.outbounds,
+        route: config.route,
+        experimental: config.experimental,
+      },
+      ruleSetDirectDownload,
+      isLoaded: true,
+    }
+  }),
 
   resetConfig: () => set({
     config: { ...defaultConfig },
@@ -1613,6 +1643,7 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
       strategy: '50',
       allOutbounds: [],
     },
+    ruleSetDirectDownload: true,
     isLoaded: false,
     lastSavedAt: null,
     error: null,
@@ -1622,7 +1653,7 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
 
   getFullConfig: () => {
     const state = get()
-    const { config, balancerState } = state
+    const { config, balancerState, ruleSetDirectDownload } = state
 
     // Build outbounds array
     let outbounds: Outbound[] = []
@@ -1680,17 +1711,21 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
       }
     }
 
-    // Ensure direct and block outbounds exist if route is configured
-    if (config.route && config.route.rules && config.route.rules.length > 0) {
-      const hasDirectTag = outbounds.some((o) => o.tag === "direct")
-      const hasBlockTag = outbounds.some((o) => o.tag === "block")
+    // Always ensure direct/block outbounds exist. This used to be conditional on
+    // config.route.rules being non-empty, but that's the *pre-rebuild* rules —
+    // rule_set definitions generated later (with download_detour: "direct" when
+    // ruleSetDirectDownload is on) also reference the "direct" tag, and in global
+    // mode config.route.rules is always [] even though a rule_set download_detour
+    // still needs it. A stray unused direct/block outbound is harmless, so just
+    // always add them instead of trying to predict every path that references them.
+    const hasDirectTag = outbounds.some((o) => o.tag === "direct")
+    const hasBlockTag = outbounds.some((o) => o.tag === "block")
 
-      if (!hasDirectTag) {
-        outbounds.push({ type: "direct", tag: "direct" })
-      }
-      if (!hasBlockTag) {
-        outbounds.push({ type: "block", tag: "block" })
-      }
+    if (!hasDirectTag) {
+      outbounds.push({ type: "direct", tag: "direct" })
+    }
+    if (!hasBlockTag) {
+      outbounds.push({ type: "block", tag: "block" })
     }
 
     // Build full config
@@ -1796,6 +1831,25 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
             final: "local_dns",
             independent_cache: true,
           }
+    } else if (!hasProxyOutbound) {
+      // No real proxy outbound: proxy_out (if referenced) is at best a stub direct
+      // outbound. A DNS server whose detour points at an empty direct outbound makes
+      // sing-box 1.13 refuse to start ("detour to an empty direct outbound makes no
+      // sense"). The default DNS ships remote_dns with detour:"proxy_out", so a
+      // no-proxy instance (e.g. pure WireGuard inbound VPN server, or direct-only)
+      // using the default DNS would otherwise crash-loop on start — and `sing-box
+      // check` doesn't catch it because it never calls Start(). Since there's no
+      // proxy to route DNS through anyway, strip detour so those servers resolve
+      // directly. Only touches the no-proxy case; real-proxy configs keep their detour.
+      const strippedServers = fullConfig.dns.servers.map((s) => {
+        if (!s.detour) return s
+        const { detour, ...rest } = s
+        return rest
+      })
+      const changed = strippedServers.some((s, i) => s !== fullConfig.dns!.servers![i])
+      if (changed) {
+        fullConfig.dns = { ...fullConfig.dns, servers: strippedServers }
+      }
     }
 
     // Route is built below from config.route (the Route tab's rules/final) for both
@@ -1843,6 +1897,11 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
         "geosite-cn": GH_PROXY + "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
         "geoip-cn": GH_PROXY + "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
         "geosite-category-ads-all": GH_PROXY + "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
+        // Kept as a safety net: the GFW toggle used a transient "geosite-geolocation-!cn"
+        // tag in an earlier iteration of this branch, so a config saved back then and
+        // reloaded now would carry a manual rule referencing it — without this entry
+        // that reference resolves to nothing and sing-box FATALs with "rule-set not
+        // found". URL is valid (200). Harmless when unreferenced (only emitted per tag).
         "geosite-geolocation-!cn": GH_PROXY + "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs",
         // Actual gfwlist (github.com/gfwlist/gfwlist), converted to sing-box .srs by
         // DustinWin/ruleset_geodata's daily build (which itself runs gfwlist2dnsmasq
@@ -1858,6 +1917,11 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
             type: "remote",
             format: "binary",
             url: ruleSetUrls[tag],
+            // Deprecated in sing-box 1.14.0 (removed in 1.16.0) in favor of
+            // http_client, but this project pins sing-box v1.13.5 — see
+            // docker.go's SingBoxVersion — so download_detour is still the
+            // correct, non-deprecated field for now.
+            ...(ruleSetDirectDownload ? { download_detour: "direct" } : {}),
           })
         }
       }
@@ -1900,7 +1964,12 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
           final: "proxy_out",
         }
       } else {
+        // No route configured yet, but the DNS tab's default rule can still
+        // reference geosite-cn — generate its definition so that reference isn't
+        // left dangling (previously this branch emitted no rule_set at all).
+        const ruleSetDefs = generateRuleSetDefinitions([], fullConfig.dns?.rules)
         fullConfig.route = {
+          rule_set: ruleSetDefs.length > 0 ? ruleSetDefs : undefined,
           rules: [],
           final: "proxy_out",
         }
@@ -1923,38 +1992,18 @@ export const useSingboxConfigStore = create<SingboxConfigStore>((set, get) => ({
     } else if (outbounds.length > 0) {
       // Create default route with final pointing to proxy_out
       // Note: action is required in sing-box 1.11.0+
+      // Built through generateRuleSetDefinitions (not hand-written) so this default
+      // route also gets the GH_PROXY mirror and respects ruleSetDirectDownload —
+      // this branch used to bypass both and hit raw.githubusercontent.com directly.
+      const defaultRules: RouteRule[] = [
+        { action: "route", rule_set: ["geosite-cn"], outbound: "direct" },
+        { action: "route", rule_set: ["geoip-cn"], outbound: "direct" },
+        { action: "route", ip_is_private: true, outbound: "direct" },
+      ]
+      const ruleSetDefs = generateRuleSetDefinitions(defaultRules, fullConfig.dns?.rules)
       fullConfig.route = {
-        rule_set: [
-          {
-            tag: "geosite-cn",
-            type: "remote",
-            format: "binary",
-            url: "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
-          },
-          {
-            tag: "geoip-cn",
-            type: "remote",
-            format: "binary",
-            url: "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-          },
-        ],
-        rules: [
-          {
-            action: "route",
-            rule_set: ["geosite-cn"],
-            outbound: "direct",
-          },
-          {
-            action: "route",
-            rule_set: ["geoip-cn"],
-            outbound: "direct",
-          },
-          {
-            action: "route",
-            ip_is_private: true,
-            outbound: "direct",
-          },
-        ],
+        rule_set: ruleSetDefs.length > 0 ? ruleSetDefs : undefined,
+        rules: defaultRules,
         final: "proxy_out",
         // default_domain_resolver filled in below from whatever DNS servers actually exist
       }
